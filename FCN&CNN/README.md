@@ -1,5 +1,5 @@
 ### Self-Learn
-- From https://web.eecs.umich.edu/~justincj/teaching/eecs498/WI2022/assignment3.html
+- From [a mini assignment](https://web.eecs.umich.edu/~justincj/teaching/eecs498/WI2022/assignment3.html)
 - challenging to detailed FCN&CNN implementation
 
 - `convolutional_network.ipynb`:
