@@ -41,7 +41,7 @@ class Linear(object):
         ######################################################################
         # Replace "pass" statement with your code
         N = x.shape[0]
-        out = torch.mm(x.reshape((N, -1)), w) + b        
+        out = torch.mm(x.reshape(N, -1), w) + b        
         ######################################################################
         #                        END OF YOUR CODE                            #
         ######################################################################
@@ -73,7 +73,7 @@ class Linear(object):
         x, w, b = cache 
         N = x.shape[0]
         dx = torch.mm(dout, w.T).reshape(x.shape)
-        dw = torch.mm(x.reshape((N, -1)).T, dout)
+        dw = torch.mm(x.reshape(N, -1).T, dout)
         db = torch.sum(dout, axis=0)
         ##################################################
         #                END OF YOUR CODE                #

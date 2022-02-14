@@ -58,7 +58,7 @@ class Conv(object):
         # Replace "pass" statement with your code
         pad = conv_param['pad']
         stride = conv_param['stride']
-        N, _, H, W = x.shape
+        N, C, H, W = x.shape
         F, _, HH, WW = w.shape
         H_out = 1 + (H + 2 * pad - HH) // stride
         W_out = 1 + (W + 2 * pad - WW) // stride
@@ -68,9 +68,7 @@ class Conv(object):
             pos_x = i*stride
             for j in range(W_out):
                 pos_y = j*stride
-                for n in range(N):
-                    for f in range(F):
-                        out[n, f, i, j] = torch.sum(x_padded[n, :, pos_x:pos_x+HH, pos_y:pos_y+WW] * w[f]) + b[f]
+                out[:, :, i, j] = (torch.mm(x_padded[:, :, pos_x:pos_x+HH, pos_y:pos_y+WW].reshape(N, -1), w.reshape(F, -1).T) + b)
         #####################################################################
         #                          END OF YOUR CODE                         #
         #####################################################################
@@ -110,10 +108,8 @@ class Conv(object):
             pos_x = i * stride
             for j in range(W_out):
                 pos_y = j * stride
-                for n in range(N):
-                    for f in range(F):
-                        dx[n, :, pos_x:pos_x+HH, pos_y:pos_y+WW] += dout[n, f, i, j] *w[f]
-                        dw[f] += dout[n, f, i, j] * x_padded[n, :, pos_x:pos_x+HH, pos_y:pos_y+WW]
+                dx[:, :, pos_x:pos_x+HH, pos_y:pos_y+WW] += torch.mm(dout[:, :, i, j], w.reshape(F, -1)).reshape(N, C, HH, WW)
+                dw += torch.mm(dout[:, :, i, j].T, x_padded[:, :, pos_x:pos_x+HH, pos_y:pos_y+WW].reshape(N, -1)).reshape(w.shape)
         dx = dx[:, :, pad:H+pad, pad:W+pad]
         ###############################################################
         #                       END OF YOUR CODE                      #
@@ -158,9 +154,7 @@ class MaxPool(object):
             pos_x = i*s
             for j in range(W_out):
                 pos_y = j*s
-                for n in range(N):
-                    for c in range(C):
-                        out[n, c, i, j] = torch.max(x[n, c, pos_x:pos_x+h, pos_y:pos_y+w])
+                out[:, :, i, j] = torch.max(x[:, :, pos_x:pos_x+h, pos_y:pos_y+w].reshape(N, C, -1), dim=2).values
         ####################################################################
         #                         END OF YOUR CODE                         #
         ####################################################################
@@ -192,12 +186,10 @@ class MaxPool(object):
             pos_x = i*s
             for j in range(W_out):
                 pos_y = j*s
-                for n in range(N):
-                    for c in range(C):
-                        max_id = torch.argmax(x[n, c, pos_x:pos_x+h, pos_y:pos_y+w])
-                        row_id = torch.div(max_id, w, rounding_mode='trunc')
-                        col_id = max_id % w
-                        dx[n, c, pos_x:pos_x+h, pos_y:pos_y+w][row_id, col_id] += dout[n, c, i, j]
+                xn = x[:, :, pos_x:pos_x+h, pos_y:pos_y+w].reshape(N*C, -1)
+                x_max = torch.max(xn, dim=1).values
+                mask = (xn.T == x_max).T
+                dx[:, :, pos_x:pos_x+h, pos_y:pos_y+w] += (mask*dout[:, :, i, j].reshape(-1, 1)).reshape(N, C, h, w)
         ####################################################################
         #                          END OF YOUR CODE                        #
         ####################################################################
@@ -910,7 +902,10 @@ class BatchNorm(object):
         if mode == 'train':
             dbeta = torch.sum(dout, dim=0)
             dgamma = torch.sum(dout * x_norm, dim=0)
-            dx = gamma*((dout - torch.sum(dout, dim=0)/N)/std - torch.sum(x_zero*dout, dim=0)*x_zero/N/(std**3))
+            # # sub is caculate sub-partial from std 
+            # sub = torch.mean(x_zero*dout/(std**3), dim=0)*x_zero
+            # dx = gamma*((dout - torch.mean(dout, dim=0))/std - (sub - torch.mean(sub, dim=0)))
+            dx = gamma*((dout - torch.mean(dout, dim=0))/std - torch.mean(x_zero*dout, dim=0)*x_zero/(std**3))
         elif mode == 'test':
             dbeta = torch.sum(dout, dim=0)
             dgamma = torch.sum(dout * x_norm, dim=0)
@@ -954,7 +949,7 @@ class BatchNorm(object):
         if mode == 'train':
             dbeta = torch.sum(dout, dim=0)
             dgamma = torch.sum(dout * x_norm, dim=0)
-            dx = gamma*((dout - torch.sum(dout, dim=0)/N)/std - torch.sum(x_zero*dout, dim=0)*x_zero/N/(std**3))
+            dx = gamma*((dout - torch.mean(dout, dim=0))/std - torch.mean(x_zero*dout, dim=0)*x_zero/(std**3))
         elif mode == 'test':
             dbeta = torch.sum(dout, dim=0)
             dgamma = torch.sum(dout * x_norm, dim=0)
