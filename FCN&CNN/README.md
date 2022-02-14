@@ -1,4 +1,4 @@
-### Self-Learn EECS498_A3
+### Self-Learn
 - From https://web.eecs.umich.edu/~justincj/teaching/eecs498/WI2022/assignment3.html
 - challenging to detailed FCN&CNN implementation
 
