@@ -1,2 +1,1 @@
-MIT $6.081 labs
-- xv6
+MIT **$6.081** labs xv6
