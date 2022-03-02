@@ -50,13 +50,13 @@ class GAT(MessagePassing):
         nn.init.xavier_normal_(self.lin_r.weight)
         nn.init.xavier_uniform_(self.attr)
 
-    def forward(self, x, edge_index, size = None):
+    def forward(self, x, edge_index, num_nodes, size = None):
         
         H, C = self.heads, self.out_channels
 
         x_l = self.lin_l(x).view(-1, H, C)
         x_r = self.lin_r(x).view(-1, H, C)
-        
+
         out = self.propagate(edge_index=edge_index, size=size, x=(x_l, x_r))
         out = out.view(-1, H*C)
 
@@ -74,6 +74,11 @@ class GAT(MessagePassing):
         node_dim = self.node_dim
         out = torch_scatter.scatter(inputs, index, node_dim, reduce='sum')
         return out
+
+    def loss(self):
+        return torch.sum(self.lin_l.weight.data**2) \
+                    + torch.sum(self.lin_r.weight.data**2) \
+                    + torch.sum(self.attr.data**2)
   
 
 
@@ -88,8 +93,7 @@ class GNNStack(torch.nn.Module):
         self.heads = args.heads
         
         conv_model = GAT
-        self.convs = torch.nn.ModuleList()
-        self.convs.append(conv_model(input_dim, hidden_dim, heads=self.heads))
+        self.convs = torch.nn.ModuleList([conv_model(input_dim, hidden_dim, heads=self.heads)])
         assert (args.num_layers >= 1), 'Number of layers is not >=1'
         for l in range(args.num_layers-1):
             self.convs.append(conv_model(args.heads * hidden_dim, hidden_dim, heads=self.heads))
@@ -97,25 +101,31 @@ class GNNStack(torch.nn.Module):
         # post-message-passing
         self.post_mp = torch.nn.Sequential(
             nn.Linear(args.heads * hidden_dim, hidden_dim), nn.Dropout(args.dropout), 
-            nn.Linear(hidden_dim, output_dim))
+            nn.Linear(hidden_dim, output_dim, bias=False))
 
         self.dropout = args.dropout
         self.num_layers = args.num_layers
 
+        self.reg = max(0, args.reg)
         self.emb = emb
         
         self.reset_parameters()
-        
+
     def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
         for layer in self.post_mp:
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_normal_(layer.weight.data)
-    
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias.data)
+
+
     def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x, edge_index = data.x, data.edge_index
           
         for i in range(self.num_layers):
-            x = self.convs[i](x, edge_index)
+            x = self.convs[i](x, edge_index, data.num_nodes)
             x = F.relu(x)
             x = F.dropout(x, p=self.dropout,training=self.training)
 
@@ -127,7 +137,13 @@ class GNNStack(torch.nn.Module):
         return F.log_softmax(x, dim=1)
 
     def loss(self, pred, label):
-        return F.nll_loss(pred, label)
+        loss = F.nll_loss(pred, label)
+        for conv in self.convs:
+            loss += self.reg * conv.loss()
+        for layer in self.post_mp:
+            if isinstance(layer, nn.Linear):
+                loss += self.reg * torch.sum(layer.weight.data**2)
+        return loss
 
 
 
@@ -164,7 +180,7 @@ def train(dataset, args):
     device = args.device
     print("Node task. test set size:", np.sum(dataset[0]['test_mask'].numpy()))
     print()
-    test_loader = loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    test_loader = loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
     # build model
     model = GNNStack(dataset.num_node_features, args.hidden_dim, dataset.num_classes, 
                             args).to(device)
@@ -276,14 +292,15 @@ if __name__=="__main__":
             'num_layers': 2, 
             'batch_size': 64, 
             'hidden_dim': 32, 
-            'dropout': 0.5, 
+            'dropout': 0.6, 
             'epochs': 500, 
             'opt': 'adam', 
             'opt_scheduler': 'none', 
             'opt_restart': 0, 
             'weight_decay': 5e-3, 
             'lr': 1e-3,
-            'heads': 2,
+            'heads': 8,
+            'reg': 5e-4
         },
     ]:
         args = objectview(args)

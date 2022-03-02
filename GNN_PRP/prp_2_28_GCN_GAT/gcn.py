@@ -46,7 +46,10 @@ class GCNLayer(torch.nn.Module):
 
     def forward(self, inputs, adj):
         out = torch_sparse.matmul(adj, inputs, reduce='add')
-        return torch.mm(out, self.weight) + self.bias
+        out = torch.mm(out, self.weight) 
+        if self.bias is not None:
+            out += self.bias
+        return out
 
     def reg_loss(self):
         return torch.sum(self.weight**2)
@@ -79,8 +82,8 @@ class GCN(torch.nn.Module):
             GCNLayer(hidden_dims, hidden_dims) for x in range(num_layers-1)
         ])
         self.post_mp = torch.nn.Sequential(
-            nn.Linear(hidden_dims, hidden_dims), nn.Dropout(args.dropout), 
-            nn.Linear(hidden_dims, out_features))
+            nn.Linear(hidden_dims, hidden_dims), nn.Dropout(args.dropout),
+            nn.Linear(hidden_dims, out_features, bias=False))
 
     def reset_parameters(self):
         for layer in self.layers:
@@ -88,6 +91,8 @@ class GCN(torch.nn.Module):
         for layer in self.post_mp:
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_normal_(layer.weight.data)
+                if layer.bias:
+                    nn.init.zeros_(layer.bias.data)
     
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -164,9 +169,10 @@ def train(dataset, args):
             valid_accs.append(valid_accs[-1])
             test_accs.append(test_accs[-1])
     
-    return valid_accs, test_accs, train_losses, best_model, best_acc, test_loader
+    train_acc = test(loader, best_model, device, is_Train=True)
+    return train_acc, valid_accs, test_accs, train_losses, best_model, best_acc, test_loader
 
-def test(loader, test_model, device, is_validation=False, 
+def test(loader, test_model, device, is_validation=False, is_Train=False, 
         save_model_preds=False, model_type=None):
     
     test_model.eval()
@@ -179,7 +185,7 @@ def test(loader, test_model, device, is_validation=False,
             pred = test_model(data.to(device)).max(dim=1)[1]
             label = data.y.to(device)
 
-        mask = data.val_mask if is_validation else data.test_mask
+        mask = data.train_mask if is_Train else data.val_mask if is_validation else data.test_mask
         # node classification: only evaluate on nodes in test set
         pred = pred[mask]
         label = label[mask]
@@ -199,7 +205,7 @@ def test(loader, test_model, device, is_validation=False,
 
     total = 0
     for data in loader.dataset:
-        total += torch.sum(data.val_mask if is_validation else data.test_mask).item()
+        total += torch.sum(data.train_mask if is_Train else data.val_mask if is_validation else data.test_mask).item()
 
     return correct / total
   
@@ -235,7 +241,7 @@ if __name__=="__main__":
             'model_type': 'GCN', 
             'dataset': 'cora', 
             'num_layers': 2, 
-            'batch_size': 32, 
+            'batch_size': 64, 
             'hidden_dim': 32, 
             'dropout': 0.5,
             'epochs': 500,
@@ -253,8 +259,9 @@ if __name__=="__main__":
         dataset = Planetoid(root='/tmp/cora', name='Cora')
     else:
         raise NotImplementedError("Unknown dataset") 
-    valid_accs, test_accs, losses, best_model, best_acc, test_loader = train(dataset, args) 
+    train_acc, valid_accs, test_accs, losses, best_model, best_acc, test_loader = train(dataset, args) 
 
+    print("Best model train accuracy: {0}".format(train_acc))
     print("Maximum valid set accuracy: {0}".format(max(valid_accs)))
     print("Maximum test set accuracy: {0}".format(max(test_accs)))
     print("Minimum loss: {0}".format(min(losses)))
