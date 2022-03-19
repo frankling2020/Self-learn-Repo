@@ -1,0 +1,8 @@
+![](./result_DD.jpg)
+![](./result_MUTAG.jpg)
+![](./result_NCI1.jpg)
+![](./result_PROTEINS.jpg)
+![](./result_COLLAB.jpg)
+![](./result_PTC_MR.jpg)
+![](./result_IMDB-BINARY.jpg)
+![](./result_IMDB-MULTI.jpg)
