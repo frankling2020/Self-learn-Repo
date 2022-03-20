@@ -134,6 +134,7 @@ def run(args):
             reg = reg.mean()
 
             # remain to see the calc_loss
+            # Mutual Information: https://zhuanlan.zhihu.com/p/409861142
             view_loss = model.calc_loss(x, x_aug) - (args.reg_lambda * reg)
             view_loss_all += view_loss.item() * batch.num_graphs
             reg_all += reg.item()
